@@ -1,0 +1,20 @@
+{{- if and .Values.chatopsBot.enabled .Values.chatopsBot.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloudops.fullname" . }}-chatops-bot
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "chatops-bot") | nindent 4 }}
+spec:
+  {{- if .Values.chatopsBot.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.chatopsBot.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.chatopsBot.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.chatopsBot.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: chatops-bot
+{{- end }}

@@ -1,0 +1,21 @@
+# Default values for cloudops-redis
+# This is a shared Redis instance that can be used by multiple CloudOps services
+
+# Redis configuration (using Bitnami Redis chart)
+redis:
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClass: ""
+  replica:
+    replicaCount: 1
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# Global configuration
+global:
+  storageClass: ""

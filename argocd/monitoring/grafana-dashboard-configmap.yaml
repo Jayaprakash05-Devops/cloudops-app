@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-grafana-dashboard
+  namespace: argocd
+  labels:
+    grafana_dashboard: "1"
+data:
+  argocd-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "ArgoCD CloudOps Monitoring",
+        "panels": [
+          {
+            "title": "Application Sync Status",
+            "targets": [
+              {
+                "expr": "argocd_app_info{namespace=\"argocd\",project=\"cloudops\"}",
+                "legendFormat": "{{name}} - {{sync_status}}"
+              }
+            ]
+          },
+          {
+            "title": "Application Health Status",
+            "targets": [
+              {
+                "expr": "argocd_app_info{namespace=\"argocd\",project=\"cloudops\"}",
+                "legendFormat": "{{name}} - {{health_status}}"
+              }
+            ]
+          },
+          {
+            "title": "Sync Failures (Last 24h)",
+            "targets": [
+              {
+                "expr": "increase(argocd_app_sync_total{phase=\"Failed\",project=\"cloudops\"}[24h])",
+                "legendFormat": "{{name}}"
+              }
+            ]
+          },
+          {
+            "title": "Reconciliation Performance",
+            "targets": [
+              {
+                "expr": "argocd_app_reconcile_bucket",
+                "legendFormat": "{{le}}"
+              }
+            ]
+          },
+          {
+            "title": "Repository Request Duration",
+            "targets": [
+              {
+                "expr": "argocd_git_request_duration_seconds",
+                "legendFormat": "{{repo}}"
+              }
+            ]
+          },
+          {
+            "title": "Application Controller Memory",
+            "targets": [
+              {
+                "expr": "process_resident_memory_bytes{job=\"argocd-application-controller-metrics\"}",
+                "legendFormat": "Memory Usage"
+              }
+            ]
+          },
+          {
+            "title": "Applications by Sync Status",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "count by (sync_status) (argocd_app_info{project=\"cloudops\"})",
+                "legendFormat": "{{sync_status}}"
+              }
+            ]
+          },
+          {
+            "title": "Applications by Health Status",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "count by (health_status) (argocd_app_info{project=\"cloudops\"})",
+                "legendFormat": "{{health_status}}"
+              }
+            ]
+          }
+        ],
+        "refresh": "30s",
+        "time": {
+          "from": "now-6h",
+          "to": "now"
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-dashboard
+  namespace: argocd
+  labels:
+    grafana_dashboard: "1"
+data:
+  notifications.json: |
+    {
+      "dashboard": {
+        "title": "ArgoCD CloudOps Notifications",
+        "panels": [
+          {
+            "title": "Notifications Sent (Last 24h)",
+            "targets": [
+              {
+                "expr": "increase(argocd_notifications_deliveries_total[24h])",
+                "legendFormat": "{{trigger}} - {{service}}"
+              }
+            ]
+          },
+          {
+            "title": "Notification Errors",
+            "targets": [
+              {
+                "expr": "argocd_notifications_deliveries_total{status=\"error\"}",
+                "legendFormat": "{{service}}"
+              }
+            ]
+          }
+        ]
+      }
+    }

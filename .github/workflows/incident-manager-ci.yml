@@ -1,0 +1,20 @@
+name: Incident Manager CI
+
+on:
+  push:
+    paths:
+      - 'services/incident-manager/**'
+      - '.github/workflows/incident-manager-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'services/incident-manager/**'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: incident-manager
+      service-path: services/incident-manager
+      port: 8003
+    secrets: inherit

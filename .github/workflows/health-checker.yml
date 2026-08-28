@@ -1,0 +1,27 @@
+name: Health Checker CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/health-checker/**'
+      - '.github/workflows/health-checker.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'services/health-checker/**'
+  workflow_dispatch:
+
+jobs:
+  ci-cd:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: health-checker
+      service-path: services/health-checker
+      port: '8002'
+      python-version: '3.11'
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

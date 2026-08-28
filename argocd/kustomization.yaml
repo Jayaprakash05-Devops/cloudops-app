@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+resources:
+  # AppProject
+  - appproject.yaml
+
+  # App of Apps (Parent Application)
+  - app-of-apps/cloudops-parent.yaml
+
+  # Individual Applications (optional - use parent or individual)
+  # - applications/cost-optimizer.yaml
+  # - applications/k8s-manager.yaml
+  # - applications/incident-manager.yaml
+  # - applications/automation-service.yaml
+  # - applications/chatops-bot.yaml
+  # - applications/metrics-collector.yaml
+  # - applications/auth-service.yaml
+  # - applications/frontend.yaml
+  # - applications/redis.yaml
+
+  # Monitoring (optional)
+  # - monitoring/prometheus-servicemonitor.yaml
+  # - monitoring/grafana-dashboard-configmap.yaml
+  # - monitoring/alerts.yaml
+
+# Common labels
+commonLabels:
+  app.kubernetes.io/part-of: cloudops
+  app.kubernetes.io/managed-by: argocd
+
+# Common annotations
+commonAnnotations:
+  argocd.argoproj.io/sync-wave: "1"

@@ -1,0 +1,20 @@
+name: ChatOps Bot CI
+
+on:
+  push:
+    paths:
+      - 'services/chatops-bot/**'
+      - '.github/workflows/chatops-bot-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'services/chatops-bot/**'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: chatops-bot
+      service-path: services/chatops-bot
+      port: 8005
+    secrets: inherit

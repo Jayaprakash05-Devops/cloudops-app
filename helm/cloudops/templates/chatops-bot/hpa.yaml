@@ -1,0 +1,54 @@
+{{- if and .Values.chatopsBot.enabled .Values.chatopsBot.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "cloudops.fullname" . }}-chatops-bot
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "chatops-bot") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "cloudops.fullname" . }}-chatops-bot
+  minReplicas: {{ .Values.chatopsBot.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.chatopsBot.autoscaling.maxReplicas }}
+  metrics:
+  {{- if .Values.chatopsBot.autoscaling.targetCPUUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.chatopsBot.autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.chatopsBot.autoscaling.targetMemoryUtilizationPercentage }}
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.chatopsBot.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 4
+        periodSeconds: 30
+      selectPolicy: Max
+{{- end }}

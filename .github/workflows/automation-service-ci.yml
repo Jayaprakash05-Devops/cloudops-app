@@ -1,0 +1,20 @@
+name: Automation Service CI
+
+on:
+  push:
+    paths:
+      - 'services/automation-service/**'
+      - '.github/workflows/automation-service-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'services/automation-service/**'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: automation-service
+      service-path: services/automation-service
+      port: 8004
+    secrets: inherit

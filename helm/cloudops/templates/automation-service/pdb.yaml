@@ -1,0 +1,20 @@
+{{- if and .Values.automationService.enabled .Values.automationService.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloudops.fullname" . }}-automation-service
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "automation-service") | nindent 4 }}
+spec:
+  {{- if .Values.automationService.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.automationService.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.automationService.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.automationService.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: automation-service
+{{- end }}

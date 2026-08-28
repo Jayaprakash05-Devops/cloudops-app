@@ -1,0 +1,24 @@
+apiVersion: v2
+name: cloudops
+description: CloudOps Command Center - Complete DevOps/SRE Platform
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - devops
+  - sre
+  - cloudops
+  - kubernetes
+  - cost-optimization
+  - incident-management
+home: https://github.com/yourusername/cloudops
+sources:
+  - https://github.com/yourusername/cloudops
+maintainers:
+  - name: CloudOps Team
+    email: team@cloudops.io
+dependencies:
+  - name: redis
+    version: "18.0.0"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

@@ -1,0 +1,194 @@
+name: Reusable Backend CI Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        required: true
+        type: string
+        description: 'Name of the service'
+      service-path:
+        required: true
+        type: string
+        description: 'Path to the service directory'
+      port:
+        required: true
+        type: number
+        description: 'Port number for the service'
+      python-version:
+        required: false
+        type: string
+        default: '3.11'
+        description: 'Python version to use'
+
+jobs:
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install black flake8 pylint bandit pytest pytest-cov safety
+
+      - name: Code formatting check (Black)
+        working-directory: ${{ inputs.service-path }}
+        run: black --check --diff main.py
+        continue-on-error: true
+
+      - name: Linting (Flake8)
+        working-directory: ${{ inputs.service-path }}
+        run: flake8 main.py --max-line-length=120 --ignore=E501,W503
+        continue-on-error: true
+
+      - name: Static analysis (Pylint)
+        working-directory: ${{ inputs.service-path }}
+        run: pylint main.py --disable=C0111,C0103,R0903 || true
+        continue-on-error: true
+
+      - name: Security scan (Bandit)
+        working-directory: ${{ inputs.service-path }}
+        run: bandit -r main.py -f json -o bandit-report.json || true
+        continue-on-error: true
+
+      - name: Dependency vulnerability scan (Safety)
+        working-directory: ${{ inputs.service-path }}
+        run: safety check --json || true
+        continue-on-error: true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports-${{ inputs.service-name }}
+          path: |
+            ${{ inputs.service-path }}/bandit-report.json
+          retention-days: 30
+
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ github.repository_owner }}/synapse-${{ inputs.service-name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.service-path }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.registry }}/${{ github.repository_owner }}/synapse-${{ inputs.service-name }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Test container health
+        if: github.event_name != 'pull_request'
+        run: |
+          docker run -d --name test-container \
+            -p ${{ inputs.port }}:${{ inputs.port }} \
+            ${{ inputs.registry }}/${{ github.repository_owner }}/synapse-${{ inputs.service-name }}:${{ github.sha }}
+
+          # Wait for container to be healthy
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker ps | grep test-container | grep -q healthy; then
+              echo "Container is healthy"
+              break
+            fi
+            echo "Waiting for container to be healthy..."
+            sleep 2
+            timeout=$((timeout-2))
+          done
+
+          # Test health endpoint
+          sleep 5
+          curl -f http://localhost:${{ inputs.port }}/health || exit 1
+
+          docker logs test-container
+          docker stop test-container
+
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, build-and-push]
+    if: always() && secrets.SLACK_WEBHOOK != ''
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "CI/CD Pipeline for ${{ inputs.service-name }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Service:* ${{ inputs.service-name }}\n*Status:* ${{ needs.build-and-push.result }}\n*Branch:* ${{ github.ref_name }}\n*Commit:* ${{ github.sha }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

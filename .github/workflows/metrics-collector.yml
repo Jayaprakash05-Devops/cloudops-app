@@ -1,0 +1,27 @@
+name: Metrics Collector CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/metrics-collector/**'
+      - '.github/workflows/metrics-collector.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'services/metrics-collector/**'
+  workflow_dispatch:
+
+jobs:
+  ci-cd:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: metrics-collector
+      service-path: services/metrics-collector
+      port: '8003'
+      python-version: '3.11'
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cost-optimizer.fullname" . }}
+  labels:
+    {{- include "cost-optimizer.labels" . | nindent 4 }}
+data:
+  REDIS_HOST: {{ include "cost-optimizer.redisHost" . | quote }}
+  REDIS_PORT: {{ include "cost-optimizer.redisPort" . | quote }}

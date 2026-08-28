@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: frontend
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cloudops
+
+  source:
+    repoURL: https://github.com/yourusername/cloudops.git
+    targetRevision: main
+    path: helm/frontend
+    helm:
+      releaseName: frontend
+      values: |
+        replicaCount: 3
+        image:
+          repository: cloudops/frontend
+          tag: "1.0.0"
+        ingress:
+          enabled: true
+          className: "nginx"
+          hosts:
+            - host: cloudops.yourdomain.com
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: cloudops-tls
+              hosts:
+                - cloudops.yourdomain.com
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudops
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  revisionHistoryLimit: 10
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

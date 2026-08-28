@@ -1,0 +1,20 @@
+{{- if and .Values.incidentManager.enabled .Values.incidentManager.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloudops.fullname" . }}-incident-manager
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "incident-manager") | nindent 4 }}
+spec:
+  {{- if .Values.incidentManager.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.incidentManager.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.incidentManager.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.incidentManager.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: incident-manager
+{{- end }}

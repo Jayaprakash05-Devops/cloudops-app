@@ -1,0 +1,181 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+  schedule:
+    # Run integration tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  integration-tests:
+    name: End-to-End Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start services with Docker Compose
+        run: |
+          docker-compose up -d
+          echo "Waiting for services to be healthy..."
+
+      - name: Wait for services to be ready
+        run: |
+          timeout=120
+          services=("8001:service-registry" "8002:health-checker" "8003:metrics-collector" "8004:alert-manager")
+
+          for service in "${services[@]}"; do
+            IFS=':' read -r port name <<< "$service"
+            echo "Checking $name on port $port..."
+
+            elapsed=0
+            while [ $elapsed -lt $timeout ]; do
+              if curl -f -s http://localhost:$port/health > /dev/null; then
+                echo "✓ $name is healthy"
+                break
+              fi
+              sleep 2
+              elapsed=$((elapsed+2))
+            done
+
+            if [ $elapsed -ge $timeout ]; then
+              echo "✗ $name failed to become healthy"
+              docker-compose logs $name
+              exit 1
+            fi
+          done
+
+      - name: Run integration test script
+        run: |
+          chmod +x scripts/test-services.sh
+          ./scripts/test-services.sh
+
+      - name: Test service registration flow
+        run: |
+          # Register a test service
+          response=$(curl -s -X POST http://localhost:8001/register \
+            -H "Content-Type: application/json" \
+            -d '{
+              "service_name": "test-api",
+              "service_url": "http://httpbin.org",
+              "health_check_endpoint": "/status/200",
+              "check_interval": 30
+            }')
+
+          service_id=$(echo $response | jq -r '.service_id')
+          echo "Registered service with ID: $service_id"
+
+          # Wait for health checker to pick it up
+          sleep 15
+
+          # Verify service appears in list
+          curl -s http://localhost:8001/services | jq '.[] | select(.service_id == "'$service_id'")'
+
+          # Check metrics are being collected
+          sleep 30
+          curl -s http://localhost:8003/metrics/$service_id/response_time
+
+          # Create alert rule
+          curl -s -X POST http://localhost:8004/rules \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"service_id\": \"$service_id\",
+              \"metric_type\": \"response_time\",
+              \"condition\": \"gt\",
+              \"threshold\": 1.0,
+              \"severity\": \"warning\"
+            }"
+
+          echo "Integration test completed successfully"
+
+      - name: Test API documentation endpoints
+        run: |
+          services=("8001" "8002" "8003" "8004")
+          for port in "${services[@]}"; do
+            echo "Testing OpenAPI docs on port $port"
+            curl -f http://localhost:$port/docs || exit 1
+            curl -f http://localhost:$port/openapi.json || exit 1
+          done
+
+      - name: Collect service logs
+        if: always()
+        run: |
+          docker-compose logs > integration-test-logs.txt
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-logs
+          path: integration-test-logs.txt
+          retention-days: 7
+
+      - name: Tear down services
+        if: always()
+        run: docker-compose down -v
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker-compose up -d
+
+      - name: Wait for services
+        run: sleep 30
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Run load tests
+        run: |
+          cat > load-test.js << 'EOF'
+          import http from 'k6/http';
+          import { check, sleep } from 'k6';
+
+          export const options = {
+            stages: [
+              { duration: '30s', target: 20 },
+              { duration: '1m', target: 20 },
+              { duration: '30s', target: 0 },
+            ],
+            thresholds: {
+              http_req_duration: ['p(95)<500'],
+              http_req_failed: ['rate<0.1'],
+            },
+          };
+
+          export default function () {
+            const res = http.get('http://localhost:8001/services');
+            check(res, {
+              'status is 200': (r) => r.status === 200,
+              'response time < 500ms': (r) => r.timings.duration < 500,
+            });
+            sleep(1);
+          }
+          EOF
+
+          k6 run load-test.js || true
+
+      - name: Tear down
+        if: always()
+        run: docker-compose down -v

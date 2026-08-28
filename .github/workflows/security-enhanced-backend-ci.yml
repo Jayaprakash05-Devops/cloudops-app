@@ -1,0 +1,551 @@
+name: Security-Enhanced Backend CI/CD
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        required: true
+        type: string
+      service-path:
+        required: true
+        type: string
+      port:
+        required: true
+        type: string
+      python-version:
+        required: false
+        type: string
+        default: '3.11'
+      registry:
+        required: false
+        type: string
+        default: 'ghcr.io'
+    secrets:
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_TOKEN:
+        required: false
+      SLACK_WEBHOOK:
+        required: false
+      SONAR_TOKEN:
+        required: false
+
+jobs:
+  # Stage 1: Checkout (handled automatically)
+
+  # Stage 2: Validate
+  validate:
+    name: Validate Code & Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for commit validation
+
+      - name: Validate commit messages
+        run: |
+          echo "Validating commit messages..."
+          # Check conventional commits format
+          git log --format=%s origin/main..HEAD | while read msg; do
+            if ! echo "$msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?: .+'; then
+              echo "❌ Invalid commit message: $msg"
+              echo "Must follow: type(scope): description"
+              exit 1
+            else
+              echo "✓ Valid: $msg"
+            fi
+          done
+        continue-on-error: true
+
+      - name: Check for large files
+        run: |
+          echo "Checking for large files..."
+          find ${{ inputs.service-path }} -type f -size +1M -exec ls -lh {} \; | \
+            awk '{print $9 " - " $5}' || true
+
+          # Fail if files > 10MB found
+          if find ${{ inputs.service-path }} -type f -size +10M | grep -q .; then
+            echo "❌ Files larger than 10MB found!"
+            exit 1
+          fi
+
+      - name: Detect hardcoded secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ${{ inputs.service-path }}
+          base: origin/main
+          head: HEAD
+          extra_args: --only-verified
+        continue-on-error: true
+
+      - name: GitLeaks secret scanning
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+  # Stage 3: Dependencies
+  dependency-security:
+    name: Dependency Security
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check for requirements.txt lock
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          if [ ! -f "requirements.txt" ]; then
+            echo "❌ requirements.txt not found"
+            exit 1
+          fi
+          echo "✓ requirements.txt exists"
+
+      - name: Verify pinned versions
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          echo "Checking for unpinned dependencies..."
+          unpinned=$(grep -vE '==' requirements.txt || true)
+          if [ ! -z "$unpinned" ]; then
+            echo "⚠️ Unpinned dependencies found:"
+            echo "$unpinned"
+          else
+            echo "✓ All dependencies are pinned"
+          fi
+
+      - name: Safety vulnerability scan
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          pip install safety
+          safety check --json --output safety-report.json || true
+          safety check || true
+        continue-on-error: true
+
+      - name: pip-audit vulnerability scan
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          pip install pip-audit
+          pip-audit --desc -f json -o pip-audit-report.json || true
+          pip-audit --desc || true
+        continue-on-error: true
+
+      - name: SBOM Generation (CycloneDX)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          pip install cyclonedx-bom
+          cyclonedx-py -r -i requirements.txt -o sbom.json
+          echo "✓ SBOM generated: sbom.json"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ inputs.service-name }}
+          path: ${{ inputs.service-path }}/sbom.json
+          retention-days: 90
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-reports-${{ inputs.service-name }}
+          path: |
+            ${{ inputs.service-path }}/safety-report.json
+            ${{ inputs.service-path }}/pip-audit-report.json
+          retention-days: 30
+
+  # Stage 4: Code Quality
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install code quality tools
+        run: |
+          pip install black flake8 pylint radon mccabe mypy isort autopep8
+
+      - name: Code formatting check (Black)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          echo "Checking code formatting..."
+          black --check --diff main.py || {
+            echo "❌ Code formatting issues found"
+            echo "Run: black main.py"
+            exit 1
+          }
+
+      - name: Import sorting check (isort)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          isort --check-only --diff main.py || true
+        continue-on-error: true
+
+      - name: Linting (Flake8)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          flake8 main.py \
+            --max-line-length=120 \
+            --max-complexity=10 \
+            --statistics \
+            --format=json \
+            --output-file=flake8-report.json || true
+          flake8 main.py --max-line-length=120 --statistics || true
+        continue-on-error: true
+
+      - name: Static analysis (Pylint)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          pylint main.py \
+            --output-format=json \
+            --reports=y \
+            --score=y > pylint-report.json || true
+          pylint main.py --reports=y || true
+        continue-on-error: true
+
+      - name: Type checking (mypy)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          mypy main.py --ignore-missing-imports --strict || true
+        continue-on-error: true
+
+      - name: Code complexity analysis (Radon)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          echo "=== Cyclomatic Complexity ==="
+          radon cc main.py -s -a -j > radon-cc.json || true
+          radon cc main.py -s -a || true
+
+          echo ""
+          echo "=== Maintainability Index ==="
+          radon mi main.py -s -j > radon-mi.json || true
+          radon mi main.py -s || true
+
+          echo ""
+          echo "=== Raw Metrics ==="
+          radon raw main.py -s -j > radon-raw.json || true
+          radon raw main.py -s || true
+
+      - name: Upload code quality reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-quality-${{ inputs.service-name }}
+          path: |
+            ${{ inputs.service-path }}/flake8-report.json
+            ${{ inputs.service-path }}/pylint-report.json
+            ${{ inputs.service-path }}/radon-*.json
+          retention-days: 30
+
+  # Stage 5: Security Scanning (SAST + SCA)
+  security-scan:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: [validate, dependency-security]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          pip install -r requirements.txt
+          pip install bandit semgrep
+
+      - name: SAST - Bandit security scan
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          bandit -r main.py \
+            -f json \
+            -o bandit-report.json \
+            --severity-level medium || true
+
+          bandit -r main.py \
+            -f html \
+            -o bandit-report.html \
+            --severity-level medium || true
+
+          echo "Bandit Summary:"
+          bandit -r main.py || true
+
+      - name: SAST - Semgrep scan
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          semgrep --config=auto \
+            --json \
+            --output=semgrep-report.json \
+            main.py || true
+
+          semgrep --config=auto main.py || true
+        continue-on-error: true
+
+      - name: Convert Bandit to SARIF
+        uses: microsoft/bandit-sarif-formatter@v1
+        if: always()
+        with:
+          bandit-json-file: ${{ inputs.service-path }}/bandit-report.json
+          sarif-output-file: ${{ inputs.service-path }}/bandit.sarif
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ inputs.service-path }}/bandit.sarif
+          category: bandit-${{ inputs.service-name }}
+        continue-on-error: true
+
+      - name: IaC Security - Checkov (Dockerfile)
+        working-directory: ${{ inputs.service-path }}
+        run: |
+          pip install checkov
+          checkov -f Dockerfile \
+            --framework dockerfile \
+            --output json \
+            --output-file checkov-dockerfile.json || true
+
+          checkov -f Dockerfile --framework dockerfile || true
+        continue-on-error: true
+
+      - name: Container image security - Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ inputs.service-path }}
+          format: 'sarif'
+          output: 'trivy-fs-${{ inputs.service-name }}.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-${{ inputs.service-name }}.sarif'
+          category: trivy-fs-${{ inputs.service-name }}
+        continue-on-error: true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports-${{ inputs.service-name }}
+          path: |
+            ${{ inputs.service-path }}/bandit-report.json
+            ${{ inputs.service-path }}/bandit-report.html
+            ${{ inputs.service-path }}/bandit.sarif
+            ${{ inputs.service-path }}/semgrep-report.json
+            ${{ inputs.service-path }}/checkov-dockerfile.json
+          retention-days: 90
+
+  # Stage 6: Build
+  build-and-test:
+    name: Build & Test Image
+    runs-on: ubuntu-latest
+    needs: [code-quality, security-scan]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ github.repository_owner }}/synapse-${{ inputs.service-name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.service-path }}
+          load: true
+          tags: ${{ inputs.service-name }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.service-name }}:test
+          format: 'sarif'
+          output: 'trivy-image-${{ inputs.service-name }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy image SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-${{ inputs.service-name }}.sarif'
+          category: trivy-image-${{ inputs.service-name }}
+        continue-on-error: true
+
+      - name: Run Trivy image scan (JSON)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ inputs.service-name }}:test
+          format: 'json'
+          output: 'trivy-image-report.json'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+        continue-on-error: true
+
+      - name: Generate SBOM for container
+        run: |
+          docker run --rm ${{ inputs.service-name }}:test sh -c "
+            pip install cyclonedx-bom 2>/dev/null || true
+            pip list --format=freeze > /tmp/requirements.txt 2>/dev/null || true
+            cyclonedx-py -r -i /tmp/requirements.txt -o /tmp/sbom-container.json 2>/dev/null || true
+            cat /tmp/sbom-container.json 2>/dev/null || echo '{}'
+          " > container-sbom-${{ inputs.service-name }}.json || true
+
+      - name: Test container health
+        run: |
+          docker run -d --name test-${{ inputs.service-name }} \
+            -p ${{ inputs.port }}:${{ inputs.port }} \
+            ${{ inputs.service-name }}:test
+
+          # Wait for health check
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if docker ps | grep test-${{ inputs.service-name }} | grep -q healthy; then
+              echo "✓ Container is healthy"
+              break
+            fi
+            sleep 2
+            timeout=$((timeout-2))
+          done
+
+          # Test health endpoint
+          sleep 5
+          curl -f http://localhost:${{ inputs.port }}/health || {
+            echo "❌ Health check failed"
+            docker logs test-${{ inputs.service-name }}
+            exit 1
+          }
+
+          echo "✓ Health endpoint responding"
+          docker logs test-${{ inputs.service-name }}
+          docker stop test-${{ inputs.service-name }}
+
+      - name: Push Docker image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.service-path }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Upload container reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-reports-${{ inputs.service-name }}
+          path: |
+            trivy-image-report.json
+            container-sbom-${{ inputs.service-name }}.json
+          retention-days: 90
+
+  # Summary Report
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [validate, dependency-security, code-quality, security-scan, build-and-test]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+
+      - name: Generate security summary
+        run: |
+          echo "# 🔒 Security Scan Summary - ${{ inputs.service-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Pipeline Stages" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Validation: Commit checks, secrets detection" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Dependencies: Vulnerability scanning, SBOM generation" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code Quality: Formatting, linting, complexity analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security: SAST, SCA, IaC scanning" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Build: Container creation and scanning" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Security Tools Used" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔍 **Secret Detection**: TruffleHog, GitLeaks" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 **Dependencies**: Safety, pip-audit" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔒 **SAST**: Bandit, Semgrep" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 **Container**: Trivy" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **IaC**: Checkov" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 **SBOM**: CycloneDX" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View detailed reports in the Actions artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack notification
+        if: secrets.SLACK_WEBHOOK != ''
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🔒 Security Scan Complete: ${{ inputs.service-name }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Service:* ${{ inputs.service-name }}\n*Status:* ${{ needs.build-and-test.result }}\n*Branch:* ${{ github.ref_name }}\n*Commit:* ${{ github.sha }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

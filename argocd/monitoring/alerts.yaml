@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-prometheus-alerts
+  namespace: argocd
+data:
+  alerts.yaml: |
+    groups:
+      - name: argocd-cloudops
+        interval: 30s
+        rules:
+          # Application Sync Alerts
+          - alert: ArgoCDApplicationOutOfSync
+            expr: argocd_app_info{sync_status="OutOfSync",project="cloudops"} == 1
+            for: 5m
+            labels:
+              severity: warning
+              component: argocd
+            annotations:
+              summary: "ArgoCD Application {{ $labels.name }} is out of sync"
+              description: "Application {{ $labels.name }} in project {{ $labels.project }} has been out of sync for more than 5 minutes."
+
+          - alert: ArgoCDApplicationUnhealthy
+            expr: argocd_app_info{health_status!="Healthy",project="cloudops"} == 1
+            for: 5m
+            labels:
+              severity: critical
+              component: argocd
+            annotations:
+              summary: "ArgoCD Application {{ $labels.name }} is unhealthy"
+              description: "Application {{ $labels.name }} health status is {{ $labels.health_status }}."
+
+          - alert: ArgoCDSyncFailed
+            expr: increase(argocd_app_sync_total{phase="Failed",project="cloudops"}[5m]) > 0
+            labels:
+              severity: critical
+              component: argocd
+            annotations:
+              summary: "ArgoCD sync failed for {{ $labels.name }}"
+              description: "Application {{ $labels.name }} sync operation failed."
+
+          # Application Controller Alerts
+          - alert: ArgoCDApplicationControllerHighMemory
+            expr: process_resident_memory_bytes{job="argocd-application-controller-metrics"} > 2147483648
+            for: 10m
+            labels:
+              severity: warning
+              component: argocd
+            annotations:
+              summary: "ArgoCD Application Controller using high memory"
+              description: "Application Controller is using more than 2GB of memory."
+
+          - alert: ArgoCDApplicationControllerDown
+            expr: up{job="argocd-application-controller-metrics"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: argocd
+            annotations:
+              summary: "ArgoCD Application Controller is down"
+              description: "Application Controller has been down for more than 2 minutes."
+
+          # Repository Server Alerts
+          - alert: ArgoCDRepoServerHighLatency
+            expr: histogram_quantile(0.95, argocd_git_request_duration_seconds_bucket) > 10
+            for: 5m
+            labels:
+              severity: warning
+              component: argocd
+            annotations:
+              summary: "ArgoCD Repository Server high latency"
+              description: "95th percentile of git request duration is above 10 seconds."
+
+          - alert: ArgoCDRepoServerDown
+            expr: up{job="argocd-repo-server-metrics"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: argocd
+            annotations:
+              summary: "ArgoCD Repository Server is down"
+              description: "Repository Server has been down for more than 2 minutes."
+
+          # API Server Alerts
+          - alert: ArgoCDAPIServerDown
+            expr: up{job="argocd-server-metrics"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: argocd
+            annotations:
+              summary: "ArgoCD API Server is down"
+              description: "API Server has been down for more than 2 minutes."
+
+          # Notification Alerts
+          - alert: ArgoCDNotificationFailures
+            expr: increase(argocd_notifications_deliveries_total{status="error"}[5m]) > 3
+            for: 5m
+            labels:
+              severity: warning
+              component: argocd
+            annotations:
+              summary: "ArgoCD notification failures"
+              description: "More than 3 notification delivery failures in the last 5 minutes for {{ $labels.service }}."
+
+          # Sync Performance
+          - alert: ArgoCDSlowReconciliation
+            expr: histogram_quantile(0.95, argocd_app_reconcile_bucket) > 300
+            for: 10m
+            labels:
+              severity: warning
+              component: argocd
+            annotations:
+              summary: "ArgoCD slow reconciliation"
+              description: "95th percentile of reconciliation time is above 5 minutes."
+
+          # Redis Alerts
+          - alert: ArgoCDRedisDown
+            expr: up{job="argocd-redis-metrics"} == 0
+            for: 2m
+            labels:
+              severity: critical
+              component: argocd
+            annotations:
+              summary: "ArgoCD Redis is down"
+              description: "Redis cache has been down for more than 2 minutes."

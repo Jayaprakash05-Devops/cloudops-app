@@ -1,0 +1,20 @@
+{{- if and .Values.metricsCollector.enabled .Values.metricsCollector.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloudops.fullname" . }}-metrics-collector
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "metrics-collector") | nindent 4 }}
+spec:
+  {{- if .Values.metricsCollector.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.metricsCollector.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.metricsCollector.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.metricsCollector.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics-collector
+{{- end }}

@@ -1,0 +1,23 @@
+name: Auth Service CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'services/auth-service/**'
+      - '.github/workflows/auth-service-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'services/auth-service/**'
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: auth-service
+      service-path: services/auth-service
+      port: 8007
+      python-version: '3.11'
+    secrets: inherit

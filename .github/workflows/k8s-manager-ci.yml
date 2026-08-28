@@ -1,0 +1,20 @@
+name: K8s Manager CI
+
+on:
+  push:
+    paths:
+      - 'services/k8s-manager/**'
+      - '.github/workflows/k8s-manager-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'services/k8s-manager/**'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: k8s-manager
+      service-path: services/k8s-manager
+      port: 8002
+    secrets: inherit

@@ -1,0 +1,21 @@
+apiVersion: v2
+name: metrics-collector
+description: Metrics Collection Service - Cross-service metrics, analytics, dashboards
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - cloudops
+  - metrics
+  - observability
+  - analytics
+home: https://github.com/yourusername/cloudops
+maintainers:
+  - name: CloudOps Team
+    email: team@cloudops.io
+
+dependencies:
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled

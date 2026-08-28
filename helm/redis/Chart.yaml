@@ -1,0 +1,19 @@
+apiVersion: v2
+name: cloudops-redis
+description: Redis for CloudOps - Shared Redis instance for all CloudOps services
+type: application
+version: 1.0.0
+appVersion: "7.2.0"
+keywords:
+  - cloudops
+  - redis
+  - cache
+home: https://github.com/yourusername/cloudops
+maintainers:
+  - name: CloudOps Team
+    email: team@cloudops.io
+
+dependencies:
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"

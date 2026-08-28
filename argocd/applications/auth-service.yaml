@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: auth-service
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: cloudops
+
+  source:
+    repoURL: https://github.com/yourusername/cloudops.git
+    targetRevision: main
+    path: helm/auth-service
+    helm:
+      releaseName: auth-service
+      values: |
+        replicaCount: 3
+        image:
+          repository: cloudops/auth-service
+          tag: "1.0.0"
+        redis:
+          enabled: false
+        env:
+          - name: REDIS_HOST
+            value: "cloudops-redis-master"
+          - name: REDIS_PORT
+            value: "6379"
+        jwtSecretKey: "CHANGE-ME-IN-PRODUCTION"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudops
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  revisionHistoryLimit: 10
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data

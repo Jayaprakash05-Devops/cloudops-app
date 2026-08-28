@@ -1,0 +1,20 @@
+name: Metrics Collector CI
+
+on:
+  push:
+    paths:
+      - 'services/metrics-collector/**'
+      - '.github/workflows/metrics-collector-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'services/metrics-collector/**'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: metrics-collector
+      service-path: services/metrics-collector
+      port: 8006
+    secrets: inherit

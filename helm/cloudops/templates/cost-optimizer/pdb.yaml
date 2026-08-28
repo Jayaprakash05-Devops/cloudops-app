@@ -1,0 +1,20 @@
+{{- if and .Values.costOptimizer.enabled .Values.costOptimizer.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloudops.fullname" . }}-cost-optimizer
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "cost-optimizer") | nindent 4 }}
+spec:
+  {{- if .Values.costOptimizer.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.costOptimizer.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.costOptimizer.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.costOptimizer.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cost-optimizer
+{{- end }}

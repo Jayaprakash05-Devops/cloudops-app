@@ -1,0 +1,505 @@
+# Default values for cloudops
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  # Docker registry
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Redis configuration (dependency)
+redis:
+  enabled: true
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 1
+
+# Common configuration for all services
+common:
+  image:
+    registry: docker.io
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the chart appVersion
+    tag: "latest"
+
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    annotations: {}
+
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls: []
+
+# Cost Optimizer Service
+costOptimizer:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/cost-optimizer
+    tag: "1.0.0"
+
+  service:
+    port: 8001
+    targetPort: 8001
+
+  env:
+    - name: REDIS_HOST
+      value: "{{ .Release.Name }}-redis-master"
+    - name: REDIS_PORT
+      value: "6379"
+
+  envFrom: []
+  # - secretRef:
+  #     name: aws-credentials
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Pod Disruption Budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    # maxUnavailable: 1
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Kubernetes Manager Service
+k8sManager:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/k8s-manager
+    tag: "1.0.0"
+
+  service:
+    port: 8002
+    targetPort: 8002
+
+  env:
+    - name: REDIS_HOST
+      value: "{{ .Release.Name }}-redis-master"
+    - name: REDIS_PORT
+      value: "6379"
+
+  envFrom: []
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Service account for K8s API access
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  # RBAC for K8s API access
+  rbac:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["pods", "services", "nodes", "namespaces"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "statefulsets"]
+        verbs: ["get", "list", "watch", "patch", "update"]
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Incident Manager Service
+incidentManager:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/incident-manager
+    tag: "1.0.0"
+
+  service:
+    port: 8003
+    targetPort: 8003
+
+  env:
+    - name: REDIS_HOST
+      value: "{{ .Release.Name }}-redis-master"
+    - name: REDIS_PORT
+      value: "6379"
+
+  envFrom: []
+  # - secretRef:
+  #     name: pagerduty-credentials
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Automation Service
+automationService:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/automation-service
+    tag: "1.0.0"
+
+  service:
+    port: 8004
+    targetPort: 8004
+
+  env:
+    - name: REDIS_HOST
+      value: "{{ .Release.Name }}-redis-master"
+    - name: REDIS_PORT
+      value: "6379"
+
+  envFrom: []
+  # - secretRef:
+  #     name: github-credentials
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ChatOps Bot Service
+chatopsBot:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/chatops-bot
+    tag: "1.0.0"
+
+  service:
+    port: 8005
+    targetPort: 8005
+
+  env:
+    - name: REDIS_HOST
+      value: "{{ .Release.Name }}-redis-master"
+    - name: REDIS_PORT
+      value: "6379"
+
+  envFrom: []
+  # - secretRef:
+  #     name: slack-credentials
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Metrics Collector Service
+metricsCollector:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/metrics-collector
+    tag: "1.0.0"
+
+  service:
+    port: 8006
+    targetPort: 8006
+
+  env:
+    - name: REDIS_HOST
+      value: "{{ .Release.Name }}-redis-master"
+    - name: REDIS_PORT
+      value: "6379"
+
+  envFrom: []
+  # - secretRef:
+  #     name: prometheus-credentials
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Auth Service
+authService:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: cloudops/auth-service
+    tag: "1.0.0"
+
+  service:
+    type: ClusterIP
+    port: 8007
+    targetPort: 8007
+
+  # JWT Secret Key (CHANGE THIS IN PRODUCTION!)
+  jwtSecretKey: "change-this-secret-key-in-production"
+
+  env: []
+  extraEnv: []
+
+  envFrom: []
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false  # Auth service needs to write to /tmp
+
+  podSecurityContext:
+    runAsUser: 1000
+    fsGroup: 1000
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  imagePullSecrets: []
+
+
+# Frontend Dashboard
+frontend:
+  enabled: true
+  replicaCount: 3
+
+  image:
+    repository: cloudops/frontend
+    tag: "1.0.0"
+
+  service:
+    port: 3000
+    targetPort: 3000
+
+  env: []
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    hosts:
+      - host: cloudops.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: cloudops-tls
+        hosts:
+          - cloudops.example.com
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Network Policies
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+
+# Service Monitor (Prometheus Operator)
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# Pod Security Policy
+podSecurityPolicy:
+  enabled: false

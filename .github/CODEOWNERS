@@ -1,0 +1,26 @@
+# Code Owners for Synapse
+# Each line is a file pattern followed by one or more owners.
+# Owners will be requested for review when someone opens a pull request.
+
+# Default owners for everything in the repo
+* @jayaprakash
+
+# Backend services
+/services/ @jayaprakash
+
+# Frontend
+/frontend/ @jayaprakash
+
+# CI/CD
+/.github/ @jayaprakash
+
+# Documentation
+*.md @jayaprakash
+
+# Docker configuration
+Dockerfile @jayaprakash
+docker-compose.yml @jayaprakash
+
+# Security-sensitive files (require multiple reviewers in production)
+/.github/workflows/ @jayaprakash
+/services/*/Dockerfile @jayaprakash

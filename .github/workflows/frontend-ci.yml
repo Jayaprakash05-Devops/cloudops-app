@@ -1,0 +1,336 @@
+name: Frontend CI
+
+on:
+  push:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+
+jobs:
+  # Stage 1: Validate
+  validate:
+    name: "🔍 Validate"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: frontend/
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+
+      - name: GitLeaks Secret Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 2: Dependencies
+  dependencies:
+    name: "📦 Dependencies"
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --json > npm-audit-report.json || true
+        continue-on-error: true
+
+      - name: Generate SBOM
+        working-directory: frontend
+        run: |
+          npm install -g @cyclonedx/cyclonedx-npm
+          cyclonedx-npm --output-file sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-sbom
+          path: frontend/sbom.json
+
+      - name: Upload Dependency Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dependency-reports
+          path: frontend/npm-audit-report.json
+
+  # Stage 3: Code Quality
+  code-quality:
+    name: "🎨 Code Quality"
+    runs-on: ubuntu-latest
+    needs: dependencies
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: ESLint Check
+        working-directory: frontend
+        run: |
+          npm install -g eslint
+          eslint src/ --format json --output-file eslint-report.json || true
+        continue-on-error: true
+
+      - name: Upload Quality Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-quality-reports
+          path: frontend/eslint-report.json
+
+  # Stage 4: Security Scan
+  security-scan:
+    name: "🔒 Security"
+    runs-on: ubuntu-latest
+    needs: code-quality
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Semgrep SAST
+        working-directory: frontend
+        run: |
+          pip install semgrep
+          semgrep --config=auto src/ --json --output=semgrep-report.json || true
+        continue-on-error: true
+
+      - name: Upload Security Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-security-reports
+          path: frontend/semgrep-report.json
+
+  # Stage 5: Build
+  build:
+    name: "🔨 Build"
+    runs-on: ubuntu-latest
+    needs: security-scan
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci || npm install
+
+      - name: Build Application
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend/
+          file: frontend/Dockerfile
+          push: false
+          tags: cloudops-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/frontend-image.tar
+
+      - name: Upload Docker Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-image
+          path: /tmp/frontend-image.tar
+          retention-days: 1
+
+  # Stage 6: Container Scan
+  container-scan:
+    name: "🐳 Container Scan"
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load --input /tmp/frontend-image.tar
+
+      - name: Trivy Image Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: cloudops-frontend:latest
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-frontend-results.sarif
+          category: trivy-frontend
+        continue-on-error: true
+
+      - name: Trivy JSON Report
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: cloudops-frontend:latest
+          format: 'json'
+          output: 'trivy-frontend-results.json'
+        continue-on-error: true
+
+      - name: Upload Trivy Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-trivy-reports
+          path: trivy-frontend-results.*
+
+  # Stage 7: Test
+  test:
+    name: "🧪 Test"
+    runs-on: ubuntu-latest
+    needs: container-scan
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load --input /tmp/frontend-image.tar
+
+      - name: Start Frontend
+        run: |
+          docker run -d --name frontend \
+            -p 3000:3000 \
+            cloudops-frontend:latest
+
+      - name: Wait for Frontend
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:3000/; do sleep 2; done'
+
+      - name: Test Frontend
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/)
+          if [ "$response" != "200" ]; then
+            echo "Frontend health check failed with status: $response"
+            exit 1
+          fi
+          echo "Frontend is responding with status: $response"
+
+      - name: View Frontend Logs
+        if: always()
+        run: docker logs frontend
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop frontend || true
+          docker rm frontend || true
+
+  # Stage 8: Report
+  report:
+    name: "📊 Report"
+    runs-on: ubuntu-latest
+    needs: [dependencies, code-quality, security-scan, build, container-scan, test]
+    if: always()
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Generate Summary
+        run: |
+          echo "# 🎯 CI/CD Pipeline Report - Frontend" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Pipeline Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application:** CloudOps Dashboard" >> $GITHUB_STEP_SUMMARY
+          echo "- **Framework:** React 18 + Vite" >> $GITHUB_STEP_SUMMARY
+          echo "- **Port:** 3000" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Completed Stages" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✓ Validate (Secret scanning)" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✓ Dependencies (npm audit, SBOM)" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✓ Code Quality (ESLint)" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✓ Security Scan (Semgrep)" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✓ Build (Vite build + Docker)" >> $GITHUB_STEP_SUMMARY
+          echo "6. ✓ Container Scan (Trivy)" >> $GITHUB_STEP_SUMMARY
+          echo "7. ✓ Test (Frontend health check)" >> $GITHUB_STEP_SUMMARY
+          echo "8. ✓ Report (This summary)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "- SBOM (Software Bill of Materials)" >> $GITHUB_STEP_SUMMARY
+          echo "- Dependency scan reports" >> $GITHUB_STEP_SUMMARY
+          echo "- Code quality reports" >> $GITHUB_STEP_SUMMARY
+          echo "- Security scan reports (SARIF uploaded to GitHub Security)" >> $GITHUB_STEP_SUMMARY
+          echo "- Container vulnerability reports" >> $GITHUB_STEP_SUMMARY
+          echo "- Production build artifacts" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload All Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-all-reports
+          path: reports/

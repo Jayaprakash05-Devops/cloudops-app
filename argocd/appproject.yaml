@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cloudops
+  namespace: argocd
+spec:
+  description: CloudOps Command Center Platform
+
+  sourceRepos:
+    - https://github.com/yourusername/cloudops.git
+    - '*'
+
+  destinations:
+    - namespace: cloudops
+      server: https://kubernetes.default.svc
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  roles:
+    - name: admin
+      description: Admin role for CloudOps project
+      policies:
+        - p, proj:cloudops:admin, applications, *, cloudops/*, allow
+      groups:
+        - cloudops-admins
+
+    - name: developer
+      description: Developer role for CloudOps project
+      policies:
+        - p, proj:cloudops:developer, applications, get, cloudops/*, allow
+        - p, proj:cloudops:developer, applications, sync, cloudops/*, allow
+      groups:
+        - cloudops-developers
+
+    - name: readonly
+      description: Read-only role for CloudOps project
+      policies:
+        - p, proj:cloudops:readonly, applications, get, cloudops/*, allow
+      groups:
+        - cloudops-viewers

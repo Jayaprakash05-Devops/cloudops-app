@@ -1,0 +1,90 @@
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "incident-manager.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+*/}}
+{{- define "incident-manager.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Create chart name and version as used by the chart label.
+*/}}
+{{- define "incident-manager.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "incident-manager.labels" -}}
+helm.sh/chart: {{ include "incident-manager.chart" . }}
+{{ include "incident-manager.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "incident-manager.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "incident-manager.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "incident-manager.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "incident-manager.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{/*
+Redis host
+*/}}
+{{- define "incident-manager.redisHost" -}}
+{{- if .Values.redis.enabled }}
+{{- printf "%s-redis-master" (include "incident-manager.fullname" .) }}
+{{- else }}
+{{- range .Values.env }}
+{{- if eq .name "REDIS_HOST" }}
+{{- .value }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Redis port
+*/}}
+{{- define "incident-manager.redisPort" -}}
+{{- if .Values.redis.enabled }}
+{{- print "6379" }}
+{{- else }}
+{{- range .Values.env }}
+{{- if eq .name "REDIS_PORT" }}
+{{- .value }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

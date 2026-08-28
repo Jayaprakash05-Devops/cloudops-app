@@ -1,0 +1,76 @@
+{{- if .Values.k8sManager.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudops.fullname" . }}-k8s-manager
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "k8s-manager") | nindent 4 }}
+spec:
+  {{- if not .Values.k8sManager.autoscaling.enabled }}
+  replicas: {{ .Values.k8sManager.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: k8s-manager
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/k8s-manager/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "cloudops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: k8s-manager
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.common.securityContext | nindent 8 }}
+      containers:
+      - name: k8s-manager
+        image: {{ include "cloudops.image" (dict "global" .Values.global "image" .Values.k8sManager.image "defaultTag" .Chart.AppVersion) }}
+        imagePullPolicy: {{ .Values.common.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.k8sManager.service.targetPort }}
+          protocol: TCP
+        env:
+        {{- range .Values.k8sManager.env }}
+        - name: {{ .name }}
+          value: {{ tpl .value $ | quote }}
+        {{- end }}
+        {{- with .Values.k8sManager.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          {{- toYaml .Values.common.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.common.readinessProbe | nindent 10 }}
+        resources:
+          {{- toYaml .Values.k8sManager.resources | nindent 10 }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /.cache
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+      {{- with .Values.k8sManager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sManager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.k8sManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

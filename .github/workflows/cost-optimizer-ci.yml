@@ -1,0 +1,20 @@
+name: Cost Optimizer CI
+
+on:
+  push:
+    paths:
+      - 'services/cost-optimizer/**'
+      - '.github/workflows/cost-optimizer-ci.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    paths:
+      - 'services/cost-optimizer/**'
+
+jobs:
+  ci:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: cost-optimizer
+      service-path: services/cost-optimizer
+      port: 8001
+    secrets: inherit

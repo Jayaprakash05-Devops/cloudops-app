@@ -1,0 +1,76 @@
+{{- if .Values.incidentManager.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudops.fullname" . }}-incident-manager
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "incident-manager") | nindent 4 }}
+spec:
+  {{- if not .Values.incidentManager.autoscaling.enabled }}
+  replicas: {{ .Values.incidentManager.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: incident-manager
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/incident-manager/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "cloudops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: incident-manager
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.common.securityContext | nindent 8 }}
+      containers:
+      - name: incident-manager
+        image: {{ include "cloudops.image" (dict "global" .Values.global "image" .Values.incidentManager.image "defaultTag" .Chart.AppVersion) }}
+        imagePullPolicy: {{ .Values.common.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.incidentManager.service.targetPort }}
+          protocol: TCP
+        env:
+        {{- range .Values.incidentManager.env }}
+        - name: {{ .name }}
+          value: {{ tpl .value $ | quote }}
+        {{- end }}
+        {{- with .Values.incidentManager.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          {{- toYaml .Values.common.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.common.readinessProbe | nindent 10 }}
+        resources:
+          {{- toYaml .Values.incidentManager.resources | nindent 10 }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /.cache
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+      {{- with .Values.incidentManager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.incidentManager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.incidentManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,76 @@
+{{- if .Values.costOptimizer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudops.fullname" . }}-cost-optimizer
+  labels:
+    {{- include "cloudops.labels" . | nindent 4 }}
+    {{- include "cloudops.serviceLabels" (dict "component" "cost-optimizer") | nindent 4 }}
+spec:
+  {{- if not .Values.costOptimizer.autoscaling.enabled }}
+  replicas: {{ .Values.costOptimizer.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cloudops.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cost-optimizer
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/cost-optimizer/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "cloudops.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cost-optimizer
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.common.securityContext | nindent 8 }}
+      containers:
+      - name: cost-optimizer
+        image: {{ include "cloudops.image" (dict "global" .Values.global "image" .Values.costOptimizer.image "defaultTag" .Chart.AppVersion) }}
+        imagePullPolicy: {{ .Values.common.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.costOptimizer.service.targetPort }}
+          protocol: TCP
+        env:
+        {{- range .Values.costOptimizer.env }}
+        - name: {{ .name }}
+          value: {{ tpl .value $ | quote }}
+        {{- end }}
+        {{- with .Values.costOptimizer.envFrom }}
+        envFrom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        livenessProbe:
+          {{- toYaml .Values.common.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.common.readinessProbe | nindent 10 }}
+        resources:
+          {{- toYaml .Values.costOptimizer.resources | nindent 10 }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /.cache
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+      {{- with .Values.costOptimizer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.costOptimizer.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.costOptimizer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

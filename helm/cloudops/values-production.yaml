@@ -1,0 +1,229 @@
+# Production values for CloudOps Command Center
+
+# Use specific image tags (not latest)
+common:
+  image:
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+# Redis with persistence
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "change-me-in-production"
+  master:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: "fast-ssd"
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 20Gi
+
+# Cost Optimizer - Higher resources for AWS API calls
+costOptimizer:
+  replicaCount: 3
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 60
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  envFrom:
+    - secretRef:
+        name: aws-credentials
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - cost-optimizer
+          topologyKey: kubernetes.io/hostname
+
+# K8s Manager - Needs RBAC
+k8sManager:
+  replicaCount: 3
+  serviceAccount:
+    create: true
+  rbac:
+    create: true
+  resources:
+    limits:
+      cpu: 1500m
+      memory: 2Gi
+    requests:
+      cpu: 750m
+      memory: 1Gi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+  podDisruptionBudget:
+    minAvailable: 2
+
+# Incident Manager
+incidentManager:
+  replicaCount: 3
+  envFrom:
+    - secretRef:
+        name: pagerduty-credentials
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 10
+  podDisruptionBudget:
+    minAvailable: 2
+
+# Automation Service
+automationService:
+  replicaCount: 3
+  resources:
+    limits:
+      cpu: 1500m
+      memory: 2Gi
+    requests:
+      cpu: 750m
+      memory: 1Gi
+  envFrom:
+    - secretRef:
+        name: github-credentials
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 20
+  podDisruptionBudget:
+    minAvailable: 2
+
+# ChatOps Bot
+chatopsBot:
+  replicaCount: 3
+  envFrom:
+    - secretRef:
+        name: slack-credentials
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 10
+  podDisruptionBudget:
+    minAvailable: 2
+
+# Metrics Collector
+metricsCollector:
+  replicaCount: 3
+  resources:
+    limits:
+      cpu: 1500m
+      memory: 2Gi
+    requests:
+      cpu: 750m
+      memory: 1Gi
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 15
+  podDisruptionBudget:
+    minAvailable: 2
+
+# Auth Service - Critical for authentication
+authService:
+  replicaCount: 3
+  jwtSecretKey: "CHANGE-THIS-TO-SECURE-RANDOM-STRING-IN-PRODUCTION"
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 60
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - auth-service
+          topologyKey: kubernetes.io/hostname
+
+
+# Frontend - Public facing
+frontend:
+  replicaCount: 5
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 30
+    targetCPUUtilizationPercentage: 60
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 3
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/limit-rps: "50"
+    hosts:
+      - host: cloudops.production.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: cloudops-production-tls
+        hosts:
+          - cloudops.production.com
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - frontend
+          topologyKey: kubernetes.io/hostname
+
+# Enable network policies
+networkPolicy:
+  enabled: true
+
+# Enable Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s

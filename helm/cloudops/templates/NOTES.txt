@@ -1,0 +1,84 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your CloudOps Command Center has been deployed to Kubernetes.
+
+Chart Version: {{ .Chart.Version }}
+App Version: {{ .Chart.AppVersion }}
+
+📊 Services Deployed:
+{{- if .Values.costOptimizer.enabled }}
+  ✓ Cost Optimizer (Port {{ .Values.costOptimizer.service.port }})
+{{- end }}
+{{- if .Values.k8sManager.enabled }}
+  ✓ Kubernetes Manager (Port {{ .Values.k8sManager.service.port }})
+{{- end }}
+{{- if .Values.incidentManager.enabled }}
+  ✓ Incident Manager (Port {{ .Values.incidentManager.service.port }})
+{{- end }}
+{{- if .Values.automationService.enabled }}
+  ✓ Automation Service (Port {{ .Values.automationService.service.port }})
+{{- end }}
+{{- if .Values.chatopsBot.enabled }}
+  ✓ ChatOps Bot (Port {{ .Values.chatopsBot.service.port }})
+{{- end }}
+{{- if .Values.metricsCollector.enabled }}
+  ✓ Metrics Collector (Port {{ .Values.metricsCollector.service.port }})
+{{- end }}
+{{- if .Values.frontend.enabled }}
+  ✓ Frontend Dashboard (Port {{ .Values.frontend.service.port }})
+{{- end }}
+
+🔒 High Availability Features:
+{{- if .Values.costOptimizer.autoscaling.enabled }}
+  ✓ Horizontal Pod Autoscaler (HPA) enabled
+{{- end }}
+{{- if .Values.costOptimizer.podDisruptionBudget.enabled }}
+  ✓ Pod Disruption Budget (PDB) enabled
+{{- end }}
+
+📝 To access your services:
+
+{{- if .Values.frontend.ingress.enabled }}
+
+1. Frontend Dashboard:
+   {{- range .Values.frontend.ingress.hosts }}
+   https://{{ .host }}
+   {{- end }}
+
+{{- else }}
+
+1. Port-forward to access services locally:
+   
+   # Frontend Dashboard
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "cloudops.fullname" . }}-frontend {{ .Values.frontend.service.port }}:{{ .Values.frontend.service.port }}
+   
+   # Cost Optimizer
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "cloudops.fullname" . }}-cost-optimizer {{ .Values.costOptimizer.service.port }}:{{ .Values.costOptimizer.service.port }}
+
+2. Access at:
+   - Dashboard: http://localhost:{{ .Values.frontend.service.port }}
+   - Cost API: http://localhost:{{ .Values.costOptimizer.service.port }}/docs
+
+{{- end }}
+
+📋 View deployed resources:
+   
+   kubectl get all -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+🔍 Check pod status:
+   
+   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+📊 View HPA status:
+   
+   kubectl get hpa -n {{ .Release.Namespace }}
+
+🛡️ View PDB status:
+   
+   kubectl get pdb -n {{ .Release.Namespace }}
+
+📖 For more information:
+   - Chart: {{ .Chart.Home }}
+   - Documentation: https://github.com/yourusername/cloudops/tree/main/helm
+
+🎉 Happy CloudOps!

@@ -1,0 +1,27 @@
+name: Service Registry CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/service-registry/**'
+      - '.github/workflows/service-registry.yml'
+      - '.github/workflows/reusable-backend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'services/service-registry/**'
+  workflow_dispatch:
+
+jobs:
+  ci-cd:
+    uses: ./.github/workflows/reusable-backend-ci.yml
+    with:
+      service-name: service-registry
+      service-path: services/service-registry
+      port: '8001'
+      python-version: '3.11'
+    secrets:
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
